@@ -54,6 +54,7 @@ from helpers.handle_creds import (
     load_correct_creds, test_api_key
 )
 
+from urllib3.exceptions import ProtocolError
 
 # for colourful logging to the console
 class txcolors:
@@ -98,7 +99,11 @@ def get_price(add_to_historical=True):
     global historical_prices, hsp_head
 
     initial_price = {}
-    prices = client.get_all_tickers()
+    try:
+        prices = client.get_all_tickers()
+    except ProtocolError as e:
+        client = Client(access_key, secret_key)
+        prices = client.get_all_tickers()
 
     for coin in prices:
 
