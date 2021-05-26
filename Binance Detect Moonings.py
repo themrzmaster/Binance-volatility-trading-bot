@@ -54,7 +54,6 @@ from helpers.handle_creds import (
     load_correct_creds, test_api_key
 )
 
-from urllib3.exceptions import ProtocolError
 
 # for colourful logging to the console
 class txcolors:
@@ -70,7 +69,8 @@ class txcolors:
 global session_profit
 session_profit = 0
 
-
+global client
+client = None
 # print with timestamps
 old_out = sys.stdout
 class St_ampe_dOut:
@@ -96,13 +96,13 @@ sys.stdout = St_ampe_dOut()
 def get_price(add_to_historical=True):
     '''Return the current price for all coins on binance'''
 
-    global historical_prices, hsp_head
+    global historical_prices, hsp_head, client
 
     initial_price = {}
     try:
         prices = client.get_all_tickers()
-    except ProtocolError as e:
-        client = Client(access_key, secret_key)
+    except:
+        get_client(access_key, secret_key)
         prices = client.get_all_tickers()
 
     for coin in prices:
@@ -124,6 +124,9 @@ def get_price(add_to_historical=True):
 
     return initial_price
 
+def get_client(access_key, secret_key):
+    global client
+    client = Client(access_key, secret_key)
 
 def wait_for_price():
     '''calls the initial price and ensures the correct amount of time has passed
@@ -519,11 +522,9 @@ if __name__ == '__main__':
 
 
     # Authenticate with the client, Ensure API key is good before continuing
-    if AMERICAN_USER:
-        client = Client(access_key, secret_key, tld='us')
-    else:
-        client = Client(access_key, secret_key)
-        
+
+    get_client(access_key, secret_key)
+
     # If the users has a bad / incorrect API key.
     # this will stop the script from starting, and display a helpful error.
     api_ready, msg = test_api_key(client, BinanceAPIException)
