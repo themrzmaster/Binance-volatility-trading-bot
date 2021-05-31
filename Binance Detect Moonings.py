@@ -33,6 +33,7 @@ init()
 # needed for the binance API / websockets / Exception handling
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
+from binance.helpers import round_step_size
 
 # used for dates
 from datetime import date, datetime, timedelta
@@ -108,11 +109,12 @@ def get_price(add_to_historical=True):
     for coin in prices:
 
         if CUSTOM_LIST:
-            if any(item + PAIR_WITH == coin['symbol'] for item in tickers) and all(item not in coin['symbol'] for item in FIATS):
-                initial_price[coin['symbol']] = { 'price': coin['price'], 'time': datetime.now()}
+            if any(item + PAIR_WITH == coin['symbol'] for item in tickers) and all(
+                    item not in coin['symbol'] for item in FIATS):
+                initial_price[coin['symbol']] = {'price': coin['price'], 'time': datetime.now()}
         else:
             if PAIR_WITH in coin['symbol'] and all(item not in coin['symbol'] for item in FIATS):
-                initial_price[coin['symbol']] = { 'price': coin['price'], 'time': datetime.now()}
+                initial_price[coin['symbol']] = {'price': coin['price'], 'time': datetime.now()}
 
     if add_to_historical:
         hsp_head += 1
@@ -367,9 +369,15 @@ def sell_coins():
     coins_sold = {}
 
     for coin in list(coins_bought):
-        # define stop loss and take profit
-        TP = float(coins_bought[coin]['bought_at']) + (float(coins_bought[coin]['bought_at']) * coins_bought[coin]['take_profit']) / 100
-        SL = float(coins_bought[coin]['bought_at']) + (float(coins_bought[coin]['bought_at']) * coins_bought[coin]['stop_loss']) / 100
+        try:
+            TP = float(coins_bought[coin]['bought_at']) + (
+                    float(coins_bought[coin]['bought_at']) * coins_bought[coin]['take_profit']) / 100
+            SL = float(coins_bought[coin]['bought_at']) + (
+                    float(coins_bought[coin]['bought_at']) * coins_bought[coin]['stop_loss']) / 100
+        # When an older version of the script is being executed
+        except KeyError:
+            TP = float(coins_bought[coin]['bought_at']) + (float(coins_bought[coin]['bought_at'])) / 100
+            SL = float(coins_bought[coin]['bought_at']) + (float(coins_bought[coin]['bought_at'])) / 100
 
 
         LastPrice = float(last_price[coin]['price'])
@@ -389,16 +397,22 @@ def sell_coins():
         if LastPrice < SL or LastPrice > TP and not USE_TRAILING_STOP_LOSS:
             print(f"{txcolors.SELL_PROFIT if PriceChange >= 0. else txcolors.SELL_LOSS}TP or SL reached, selling {coins_bought[coin]['volume']} {coin} - {BuyPrice} - {LastPrice} : {PriceChange-(TRADING_FEE*2):.2f}% Est:${(QUANTITY*(PriceChange-(TRADING_FEE*2)))/100:.2f}{txcolors.DEFAULT}")
 
-            # try to create a real order
+           # try to create a real order
             try:
+                try:
+                    rounded_amount = round_step_size(coins_bought[coin]['volume'], coins_bought[coin]['step_size'])
+                except Exception:
+                    tick_size = float(next(
+                        filter(lambda f: f['filterType'] == 'LOT_SIZE', client.get_symbol_info(coin)['filters'])
+                    )['stepSize'])
+                    rounded_amount = round_step_size(coins_bought[coin]['volume'], tick_size)
 
                 if not TEST_MODE:
                     sell_coins_limit = client.create_order(
                         symbol = coin,
                         side = 'SELL',
                         type = 'MARKET',
-                        quantity = coins_bought[coin]['volume']
-
+                        quantity = rounded_amount
                     )
 
             # error handling here in case position cannot be placed
@@ -433,6 +447,9 @@ def update_portfolio(orders, last_price, volume):
     '''add every coin bought to our portfolio for tracking/selling later'''
     if DEBUG: print(orders)
     for coin in orders:
+        coin_step_size = float(next(
+                        filter(lambda f: f['filterType'] == 'LOT_SIZE', client.get_symbol_info(orders[coin][0]['symbol'])['filters'])
+                        )['stepSize'])
 
         coins_bought[coin] = {
             'symbol': orders[coin][0]['symbol'],
@@ -442,6 +459,7 @@ def update_portfolio(orders, last_price, volume):
             'volume': volume[coin],
             'stop_loss': -STOP_LOSS,
             'take_profit': TAKE_PROFIT,
+            'step_size': coin_step_size,
             }
 
         # save the coins in a json file in the same directory
